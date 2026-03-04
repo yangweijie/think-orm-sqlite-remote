@@ -1,0 +1,26 @@
+{
+  "name": "yangweijie/think-orm-sqlite-remote",
+  "description": "ThinkPHP ORM SQLite Remote Connection via HTTP Tunnel",
+  "type": "think-ext",
+  "license": "Apache-2.0",
+  "require": {
+    "php": ">=8.0",
+    "topthink/framework": "^8.0",
+    "topthink/think-orm": "^3.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "yangweijie\\orm\\sqlite\\remote\\": "src/"
+    }
+  },
+  "extra": {
+    "think": {
+      "commands": {
+        "optimize:schema-remote": "yangweijie\\orm\\sqlite\\remote\\console\\command\\optimize\\SchemaRemote"
+      },
+      "providers": [
+        "yangweijie\\orm\\sqlite\\remote\\service\\ServiceProvider"
+      ]
+    }
+  }
+}

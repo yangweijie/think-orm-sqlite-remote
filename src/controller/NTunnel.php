@@ -579,7 +579,18 @@ class NTunnel
      */
     protected function getTestPageHtml(): string
     {
-        return <<<'HTML'
+        // 检测 SQLite2 支持
+        $sqlite2PhpVersion = PHP_VERSION_ID >= 50000;
+        $sqlite2Available = function_exists('sqlite_open');
+        
+        // 检测 SQLite3 支持
+        $sqlite3PhpVersion = PHP_VERSION_ID >= 50300;
+        $sqlite3Available = class_exists('SQLite3');
+        
+        // 格式化 PHP 版本
+        $phpVersion = PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION . '.' . PHP_RELEASE_VERSION;
+        
+        return <<<HTML
 <!DOCTYPE html>
 <html>
 <head>
@@ -602,9 +613,16 @@ class NTunnel
         }
         fieldset {
             border: 1px solid #666;
+            margin-bottom: 20px;
+        }
+        legend {
+            font-weight: bold;
         }
         table {
             width: 100%;
+        }
+        td {
+            padding: 3px 5px;
         }
         input[type="text"], input[type="password"] {
             width: 300px;
@@ -614,22 +632,25 @@ class NTunnel
         input[type="submit"] {
             padding: 8px 16px;
         }
-        .success { color: #0B0; }
-        .error { color: #D00; }
+        .success { color: #0B0; font-weight: bold; }
+        .error { color: #D00; font-weight: bold; }
         #page {
             max-width: 42em;
             min-width: 36em;
             margin: auto;
         }
+        .copyright {
+            text-align: right;
+            font-size: 10px;
+            color: #999;
+            margin-top: 20px;
+        }
     </style>
     <script>
     function doServerTest() {
         var form = document.getElementById('TestServerForm');
-        var params = '';
-        for (var i = 0; i < form.elements.length; i++) {
-            if (i > 0) params += '&';
-            params += form.elements[i].id + '=' + encodeURIComponent(form.elements[i].value);
-        }
+        var dbfile = document.getElementById('dbfile').value;
+        var params = 'actn=C&dbfile=' + encodeURIComponent(dbfile);
         
         document.getElementById('ServerTest').innerHTML = 'Connecting...';
         
@@ -664,7 +685,85 @@ class NTunnel
     <fieldset>
         <legend>System Environment Test</legend>
         <table>
+            <tr>
+                <td>[SQLite2] PHP version &gt;= 5.0.0</td>
+                <td align="right">
+                    {$this->formatTestResult($sqlite2PhpVersion, $phpVersion)}
+                </td>
+            </tr>
+            <tr>
+                <td>[SQLite2] sqlite_open() available</td>
+                <td align="right">
+                    {$this->formatTestResult($sqlite2Available)}
+                </td>
+            </tr>
+            <tr>
+                <td>[SQLite3] PHP version &gt;= 5.3.0</td>
+                <td align="right">
+                    {$this->formatTestResult($sqlite3PhpVersion, $phpVersion)}
+                </td>
+            </tr>
+            <tr>
+                <td>[SQLite3] SQLite3 class available</td>
+                <td align="right">
+                    {$this->formatTestResult($sqlite3Available)}
+                </td>
+            </tr>
+            <tr>
+                <td>Current tunnel file version</td>
+                <td align="right">{$this->getVersionString()}</td>
+            </tr>
+        </table>
+    </fieldset>
+    
+    <fieldset>
+        <legend>Server Test</legend>
+        <form id="TestServerForm" onsubmit="return doServerTest();">
+            <table>
+                <tr>
+                    <td>Database File:</td>
+                    <td><input type="text" id="dbfile" name="dbfile" value="" placeholder="path/to/database.sqlite"></td>
+                </tr>
+                <tr>
+                    <td></td>
+                    <td><input type="submit" value="Test Connection"></td>
+                </tr>
+            </table>
+        </form>
+        <div id="ServerTest"></div>
+    </fieldset>
+    
+    <p class="copyright">Copyright © PremiumSoft™ CyberTech Ltd. All Rights Reserved.</p>
+</div>
+</body>
+</html>
 HTML;
+    }
+    
+    /**
+     * 格式化测试结果
+     */
+    protected function formatTestResult(bool $success, ?string $extra = null): string
+    {
+        if ($success) {
+            $text = 'Yes';
+            if ($extra !== null) {
+                $text .= ' (' . htmlspecialchars($extra) . ')';
+            }
+            return '<span class="success">' . $text . '</span>';
+        } else {
+            return '<span class="error">No</span>';
+        }
+    }
+    
+    /**
+     * 获取版本字符串
+     */
+    protected function getVersionString(): string
+    {
+        $major = intval(self::VERSION / 100);
+        $minor = self::VERSION % 100;
+        return $major . '.' . $minor;
     }
     
     /**

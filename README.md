@@ -169,6 +169,25 @@ $result = $conn->query('SELECT COUNT(*) as total FROM users');
 3. 字段定义: 字段名 + 表名 + 类型 + 标志 + 长度
 4. 数据行: 值块 + 类型
 
+## 服务端部署
+
+### 方式一：独立脚本
+将 `ntunnel_sqlite.php` 部署到远程服务器。
+
+### 方式二：ThinkPHP 路由
+```php
+// 注册路由
+\yangweijie\orm\sqlite\remote\service\ServiceProvider::registerRoute(
+    app()->route,
+    'ntunnel-sqlite',
+    [
+        'auth_username' => 'admin',
+        'auth_password' => 'secret',
+        'database_root' => '/data/sqlite',  // 限制数据库目录
+    ]
+);
+```
+
 ## 注意事项
 
 1. **安全**: 不要将 `ntunnel_sqlite.php` 暴露在公共网络上，使用防火墙或 Basic Auth 保护

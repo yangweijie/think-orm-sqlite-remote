@@ -389,11 +389,7 @@ class TunnelServer
      */
     public function cleanupIdleSessions(): void
     {
-<<<<<<< HEAD
-        while (true) {
-=======
         while ($this->running) {
->>>>>>> 6cbda54 (PRAGMA 参数白名单验证 (ConnectionSession.php))
             Async\sleep(Duration::seconds(min($this->idleTimeout, 60))); // 最多每分钟检查一次
             
             $this->doCleanupIdle();

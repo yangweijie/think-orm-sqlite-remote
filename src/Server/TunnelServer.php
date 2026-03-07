@@ -173,6 +173,9 @@ class TunnelServer
             $this->sessions = [];
         }
         $this->log("Server stopped");
+        
+        // 退出进程（守护进程收到信号后应退出）
+        exit(0);
     }
 
     /**

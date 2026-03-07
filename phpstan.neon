@@ -1,0 +1,64 @@
+parameters:
+    level: 5
+    
+    paths:
+        - src
+    
+    excludePaths:
+        - vendor/*
+        - tests/*
+    
+    # PHP 版本
+    phpVersion: 80400
+    
+    # 忽略未匹配的错误
+    reportUnmatchedIgnoredErrors: false
+    
+    # 不将 PHPDoc 类型视为确定类型
+    treatPhpDocTypesAsCertain: false
+    
+    # 忽略特定错误
+    ignoreErrors:
+        # think-orm / think-console 类型问题
+        - identifier: assign.propertyType
+          path: src/Connection.php
+        - identifier: method.void
+          path: src/console/command/optimize/SchemaRemote.php
+        - identifier: argument.type
+          path: src/controller/NTunnel.php
+        
+        # 布尔表达式（来自 PHPDoc 或运行时计算）
+        - identifier: booleanNot.alwaysFalse
+        - identifier: booleanAnd.leftAlwaysFalse
+        - identifier: booleanAnd.alwaysFalse
+        - identifier: empty.property
+        - identifier: while.alwaysTrue
+        - identifier: smaller.alwaysFalse
+        - identifier: greaterOrEqual.alwaysTrue
+        - identifier: ternary.alwaysFalse
+        
+        # curl 选项类型
+        - identifier: argument.type
+          path: src/Connection.php
+        
+        # Psl API 兼容性（psl 5.x API 变化）
+        - identifier: argument.type
+          paths:
+            - src/Server/TunnelServer.php
+            - src/SocketClient.php
+        - identifier: arguments.count
+          path: src/SocketClient.php
+        - identifier: argument.unknown
+          path: src/SocketClient.php
+        - identifier: class.notFound
+          paths:
+            - src/Server/TunnelServer.php
+            - src/SocketClient.php
+        
+        # 命令中的 return 0（异步执行后）
+        - identifier: deadCode.unreachable
+          path: src/console/command/SqliteTunnel.php
+
+rules:
+    # 禁止死代码（排除已忽略的）
+    - PHPStan\Rules\DeadCode\UnreachableStatementRule

@@ -1,26 +1,51 @@
 {
   "name": "yangweijie/think-orm-sqlite-remote",
-  "description": "ThinkPHP ORM SQLite Remote Connection via HTTP Tunnel",
+  "description": "ThinkPHP ORM SQLite Remote Connection via HTTP Tunnel or Socket",
   "type": "think-ext",
   "license": "Apache-2.0",
   "require": {
-    "php": ">=8.0",
+    "php": ">=8.4",
     "topthink/framework": "^8.0",
-    "topthink/think-orm": "^3.0|^4.0"
+    "topthink/think-orm": "^3.0|^4.0",
+    "azjezz/psl": "^5.0"
   },
   "autoload": {
     "psr-4": {
       "yangweijie\\orm\\sqlite\\remote\\": "src/"
     }
   },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
+  },
   "extra": {
     "think": {
       "commands": {
-        "optimize:schema-remote": "yangweijie\\orm\\sqlite\\remote\\console\\command\\optimize\\SchemaRemote"
+        "optimize:schema-remote": "yangweijie\\orm\\sqlite\\remote\\console\\command\\optimize\\SchemaRemote",
+        "sqlite-tunnel:start": "yangweijie\\orm\\sqlite\\remote\\console\\command\\SqliteTunnel"
       },
       "providers": [
         "yangweijie\\orm\\sqlite\\remote\\service\\ServiceProvider"
       ]
     }
+  },
+  "require-dev": {
+    "pestphp/pest": "^3.0",
+    "phpstan/phpstan": "^2.0"
+  },
+  "config": {
+    "allow-plugins": {
+      "pestphp/pest-plugin": true
+    }
+  },
+  "scripts": {
+    "test": "pest",
+    "test:coverage": "pest --coverage",
+    "stan": "phpstan analyse --memory-limit=512M",
+    "check": [
+      "@stan",
+      "@test"
+    ]
   }
 }

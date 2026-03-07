@@ -9,10 +9,19 @@ use think\db\exception\DbException;
 use think\db\BaseQuery;
 
 /**
- * SQLite Remote Connection via HTTP Tunnel
+ * SQLite Remote Connection
  *
- * 复用 think-orm 的 SQLite Builder 和 Query，
- * 仅重写查询执行部分，通过 HTTP Tunnel 远程执行
+ * 支持两种模式：
+ * 1. HTTP Tunnel 模式 - 用于 Navicat 等客户端连接（无事务支持）
+ * 2. Socket 模式 - 用于 ThinkPHP 应用内部使用（支持完整事务）
+ *
+ * 配置示例：
+ * // HTTP Tunnel 模式（默认）
+ * 'tunnel_url' => 'http://server/ntunnel-sqlite',
+ *
+ * // Socket 模式（推荐用于事务）
+ * 'socket_host' => '127.0.0.1',
+ * 'socket_port' => 9527,
  */
 class Connection extends BaseConnection
 {
@@ -21,16 +30,28 @@ class Connection extends BaseConnection
     protected bool $encodeBase64 = false;
     protected int $tunnelTimeout = 30;
     protected int $lastInsertId = 0;
-    
+
     /**
      * Basic Auth 用户名
      */
     protected ?string $authUsername = null;
-    
+
     /**
      * Basic Auth 密码
      */
     protected ?string $authPassword = null;
+
+    /**
+     * Socket 模式配置
+     */
+    protected ?string $socketHost = null;
+    protected ?int $socketPort = null;
+    protected ?SocketClient $socketClient = null;
+
+    /**
+     * 是否使用 Socket 模式
+     */
+    protected bool $useSocket = false;
 
     public function getQueryClass(): string
     {
@@ -62,20 +83,31 @@ class Connection extends BaseConnection
         $this->dbFile = $this->config['database'] ?? '';
         $this->encodeBase64 = $this->config['encode_base64'] ?? false;
         $this->tunnelTimeout = $this->config['timeout'] ?? 30;
-        
+
         // Basic Auth 配置
         $this->authUsername = $this->config['auth_username'] ?? null;
         $this->authPassword = $this->config['auth_password'] ?? null;
 
-        if (empty($this->tunnelUrl)) {
-            throw new DbException('Tunnel URL is not configured', $this->config);
+        // Socket 模式配置
+        $this->socketHost = $this->config['socket_host'] ?? null;
+        $this->socketPort = $this->config['socket_port'] ?? null;
+        $this->useSocket = ($this->socketHost !== null && $this->socketPort !== null);
+
+        // 检查配置
+        if (!$this->useSocket && empty($this->tunnelUrl)) {
+            throw new DbException('Either tunnel_url or socket_host/socket_port must be configured', $this->config);
         }
 
         if (empty($this->dbFile)) {
             throw new DbException('Database file path is not configured', $this->config);
         }
 
-        $this->testConnection();
+        // 测试连接
+        if ($this->useSocket) {
+            $this->initSocketClient();
+        } else {
+            $this->testConnection();
+        }
 
         $this->links[$linkNum] = true;
         $this->linkID = true;
@@ -83,6 +115,34 @@ class Connection extends BaseConnection
         return $this;
     }
 
+    /**
+     * 初始化 Socket 客户端
+     */
+    protected function initSocketClient(): void
+    {
+        $this->socketClient = new SocketClient(
+            $this->socketHost,
+            $this->socketPort,
+            $this->authUsername,
+            $this->authPassword,
+            $this->tunnelTimeout
+        );
+
+        $result = $this->socketClient->connectDatabase($this->dbFile);
+
+        if ($result['errno'] !== 0) {
+            throw new DbException(
+                'Socket connection failed: ' . ($result['error'] ?? 'Unknown error'),
+                $this->config,
+                '',
+                $result['errno']
+            );
+        }
+    }
+
+    /**
+     * 测试 HTTP Tunnel 连接
+     */
     protected function testConnection(): bool
     {
         $result = $this->executeRaw('C', []);
@@ -97,6 +157,22 @@ class Connection extends BaseConnection
         }
 
         return true;
+    }
+
+    /**
+     * 是否使用 Socket 模式
+     */
+    public function isSocketMode(): bool
+    {
+        return $this->useSocket;
+    }
+
+    /**
+     * 获取 Socket 客户端
+     */
+    public function getSocketClient(): ?SocketClient
+    {
+        return $this->socketClient;
     }
 
     protected function executeRaw(string $action, array $queries): array
@@ -312,7 +388,13 @@ class Connection extends BaseConnection
         $sql = $this->getRealSql($sql, $bind);
         $this->queryStartTime = microtime(true);
 
-        $result = $this->executeRaw('Q', [$sql]);
+        if ($this->useSocket && $this->socketClient) {
+            // Socket 模式
+            $result = $this->socketClient->query($this->dbFile, $sql);
+        } else {
+            // HTTP Tunnel 模式
+            $result = $this->executeRaw('Q', [$sql]);
+        }
 
         if (!empty($this->config['trigger_sql'])) {
             $this->trigger('', $master);
@@ -332,7 +414,13 @@ class Connection extends BaseConnection
         $sql = $this->getRealSql($sql, $bind);
         $this->queryStartTime = microtime(true);
 
-        $result = $this->executeRaw('Q', [$sql]);
+        if ($this->useSocket && $this->socketClient) {
+            // Socket 模式
+            $result = $this->socketClient->query($this->dbFile, $sql);
+        } else {
+            // HTTP Tunnel 模式
+            $result = $this->executeRaw('Q', [$sql]);
+        }
 
         if (!empty($this->config['trigger_sql'])) {
             $this->trigger('', true);
@@ -456,8 +544,23 @@ class Connection extends BaseConnection
     {
         $this->initConnect(true);
         ++$this->transTimes;
+
         if ($this->transTimes == 1) {
-            $this->execute('BEGIN TRANSACTION');
+            if ($this->useSocket && $this->socketClient) {
+                // Socket 模式：通过守护进程管理事务
+                $result = $this->socketClient->beginTransaction($this->dbFile);
+                if ($result['errno'] !== 0) {
+                    throw new DbException(
+                        'Begin transaction failed: ' . ($result['error'] ?? 'Unknown error'),
+                        $this->config,
+                        '',
+                        $result['errno']
+                    );
+                }
+            } else {
+                // HTTP Tunnel 模式：立即执行 BEGIN
+                $this->execute('BEGIN TRANSACTION');
+            }
         }
     }
 
@@ -465,7 +568,22 @@ class Connection extends BaseConnection
     {
         if ($this->transTimes > 0) {
             --$this->transTimes;
-            $this->execute('COMMIT');
+
+            if ($this->useSocket && $this->socketClient) {
+                // Socket 模式
+                $result = $this->socketClient->commit();
+                if ($result['errno'] !== 0) {
+                    throw new DbException(
+                        'Commit failed: ' . ($result['error'] ?? 'Unknown error'),
+                        $this->config,
+                        '',
+                        $result['errno']
+                    );
+                }
+            } else {
+                // HTTP Tunnel 模式
+                $this->execute('COMMIT');
+            }
         }
     }
 
@@ -473,7 +591,22 @@ class Connection extends BaseConnection
     {
         if ($this->transTimes > 0) {
             --$this->transTimes;
-            $this->execute('ROLLBACK');
+
+            if ($this->useSocket && $this->socketClient) {
+                // Socket 模式
+                $result = $this->socketClient->rollback();
+                if ($result['errno'] !== 0) {
+                    throw new DbException(
+                        'Rollback failed: ' . ($result['error'] ?? 'Unknown error'),
+                        $this->config,
+                        '',
+                        $result['errno']
+                    );
+                }
+            } else {
+                // HTTP Tunnel 模式
+                $this->execute('ROLLBACK');
+            }
         }
     }
 

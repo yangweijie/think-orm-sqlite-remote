@@ -2,71 +2,80 @@
 /**
  * SQLite Remote Database Configuration
  * 
- * Usage:
+ * 支持两种模式：
  * 
- * 1. Install the package:
- *    composer require qiezi/think-orm-sqlite-remote
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │ 模式 1: HTTP Tunnel（用于 Navicat 等客户端）                             │
+ * │ - 无事务支持                                                            │
+ * │ - 适合远程管理工具连接                                                   │
+ * │ - 配置: tunnel_url                                                      │
+ * └─────────────────────────────────────────────────────────────────────────┘
  * 
- * 2. Configure database.php:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │ 模式 2: Socket（用于 ThinkPHP 应用，支持完整事务）                        │
+ * │ - 支持完整事务（BEGIN/COMMIT/ROLLBACK）                                  │
+ * │ - 支持事务中获取 lastInsertId                                            │
+ * │ - 需要先启动守护进程: php think sqlite-tunnel:start                      │
+ * │ - 配置: socket_host + socket_port                                       │
+ * └─────────────────────────────────────────────────────────────────────────┘
  * 
- *    return [
- *        'default' => 'sqlite_remote',
- *        'connections' => [
- *            'sqlite_remote' => [
- *                'type'     => 'qiezi\\orm\\sqlite\\remote\\Connection',
- *                'tunnel_url' => 'http://your-server.com/ntunnel_sqlite.php',
- *                'database' => 'data/db.sqlite',  // Relative path to SQLite file
- *                'prefix'   => 'db_',             // Table prefix (optional)
- *                'encode_base64' => false,        // Encode queries in base64 (optional)
- *                'timeout'  => 30,                // Connection timeout in seconds (optional)
- *            ],
- *        ],
- *    ];
+ * 使用步骤：
  * 
- * 3. Use in code:
+ * 1. 安装包：
+ *    composer require yangweijie/think-orm-sqlite-remote
  * 
- *    // Direct query
- *    $result = \think\facade\Db::connect('sqlite_remote')->query('SELECT * FROM users');
+ * 2. HTTP Tunnel 模式（Navicat 连接用）：
+ *    - 部署 ntunnel_sqlite.php 或注册路由
+ *    - 配置 tunnel_url
+ * 
+ * 3. Socket 模式（事务支持）：
+ *    - 启动守护进程: php think sqlite-tunnel:start --port=9527
+ *    - 配置 socket_host 和 socket_port
+ * 
+ * 4. 使用示例：
+ * 
+ *    // 查询
+ *    $users = Db::table('users')->select();
  *    
- *    // Using Query Builder
- *    $users = \think\facade\Db::connect('sqlite_remote')
- *        ->table('users')
- *        ->where('status', 1)
- *        ->select();
- *    
- *    // Insert
- *    \think\facade\Db::connect('sqlite_remote')->table('users')->insert([
- *        'name' => 'John',
- *        'email' => 'john@example.com',
- *    ]);
- *    
- *    // Using Model
- *    namespace app\model;
- *    
- *    use think\Model;
- *    
- *    class User extends Model
- *    {
- *        protected $connection = 'sqlite_remote';
- *        protected $table = 'users';
- *    }
- * 
- * 4. Make sure your ntunnel_sqlite.php is accessible:
- *    - Place ntunnel_sqlite.php on your remote server
- *    - The path should be relative to the ntunnel_sqlite.php location
- *    - Example: 'data/db.sqlite' means the file is at /path/to/data/db.sqlite
+ *    // 事务（需要 Socket 模式）
+ *    Db::transaction(function() {
+ *        $id = Db::table('users')->insertGetId(['name' => 'test']);
+ *        Db::table('profiles')->insert(['user_id' => $id]);
+ *    });
  */
 
 return [
     'default' => 'sqlite_remote',
     'connections' => [
+        // HTTP Tunnel 模式（Navicat 连接用，无事务支持）
         'sqlite_remote' => [
-            'type' => \qiezi\orm\sqlite\remote\Connection::class,
-            'tunnel_url' => 'http://localhost:8080/ntunnel_sqlite.php',
-            'database' => 'database.sqlite',
-            'prefix' => '',
-            'encode_base64' => false,
-            'timeout' => 30,
+            'type'           => \yangweijie\orm\sqlite\remote\Connection::class,
+            'tunnel_url'     => 'http://localhost/ntunnel-sqlite',
+            'database'       => '/path/to/database.sqlite',
+            'prefix'         => '',
+            'encode_base64'  => false,
+            'timeout'        => 30,
+            // Basic Auth（可选）
+            'auth_username'  => 'admin',
+            'auth_password'  => 'secret',
+            // 字段缓存
+            'fields_cache'   => true,
+        ],
+        
+        // Socket 模式（ThinkPHP 应用用，支持事务）
+        'sqlite_socket' => [
+            'type'           => \yangweijie\orm\sqlite\remote\Connection::class,
+            // Socket 配置（优先于 tunnel_url）
+            'socket_host'    => '127.0.0.1',
+            'socket_port'    => 9527,
+            'database'       => '/path/to/database.sqlite',
+            'prefix'         => '',
+            'timeout'        => 30,
+            // Basic Auth（可选，需与守护进程配置一致）
+            'auth_username'  => 'admin',
+            'auth_password'  => 'secret',
+            // 字段缓存
+            'fields_cache'   => true,
         ],
     ],
 ];

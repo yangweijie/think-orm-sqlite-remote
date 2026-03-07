@@ -6,6 +6,7 @@ namespace yangweijie\orm\sqlite\remote\service;
 use think\App;
 use think\Route;
 use yangweijie\orm\sqlite\remote\console\command\optimize\SchemaRemote;
+use yangweijie\orm\sqlite\remote\console\command\SqliteTunnel;
 use yangweijie\orm\sqlite\remote\controller\NTunnel;
 
 /**
@@ -23,6 +24,9 @@ use yangweijie\orm\sqlite\remote\controller\NTunnel;
  * 
  * 3. 手动注册路由（在 route/app.php 中）:
  *    \yangweijie\orm\sqlite\remote\service\ServiceProvider::registerRoute($app->route);
+ * 
+ * 4. 启动 Socket 守护进程（支持事务）:
+ *    php think sqlite-tunnel:start --port=9527
  */
 class ServiceProvider
 {
@@ -43,6 +47,7 @@ class ServiceProvider
     {
         return [
             SchemaRemote::class,
+            SqliteTunnel::class,
         ];
     }
     

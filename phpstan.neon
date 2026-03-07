@@ -41,24 +41,9 @@ parameters:
         - identifier: argument.type
           path: src/Connection.php
         
-        # Psl API 兼容性（psl 5.x API 变化）
-        - identifier: argument.type
-          paths:
-            - src/Server/TunnelServer.php
-            - src/SocketClient.php
-        - identifier: arguments.count
-          path: src/SocketClient.php
-        - identifier: argument.unknown
-          path: src/SocketClient.php
-        - identifier: class.notFound
-          paths:
-            - src/Server/TunnelServer.php
-            - src/SocketClient.php
-        
         # 命令中的 return 0（异步执行后）
         - identifier: deadCode.unreachable
           path: src/console/command/SqliteTunnel.php
 
 rules:
-    # 禁止死代码（排除已忽略的）
     - PHPStan\Rules\DeadCode\UnreachableStatementRule

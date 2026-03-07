@@ -4,8 +4,8 @@ declare(strict_types=1);
 namespace yangweijie\orm\sqlite\remote\Server;
 
 use Psl\Async;
-use Psl\IO;
-use Psl\Network;
+use Psl\DateTime\Duration;
+use Psl\TCP;
 use think\console\Output;
 
 /**
@@ -76,14 +76,17 @@ class TunnelServer
         $this->log("Starting SQLite Tunnel Server on {$this->host}:{$this->port}");
 
         // 使用 psl TCP 监听
-        $listener = Network\Server::create(
-            Network\SocketAddress::create($this->host, $this->port)
+        $listener = TCP\listen(
+            $this->host,
+            $this->port,
+            no_delay: true,
+            reuse_address: true,
         );
 
         $this->log("Server started, waiting for connections...");
 
         // 启动空闲连接清理协程
-        Async\run([$this, 'cleanupIdleSessions'])->ignore();
+        Async\run(fn() => $this->cleanupIdleSessions());
 
         // 主循环接受连接
         while (true) {
@@ -91,9 +94,7 @@ class TunnelServer
                 $connection = $listener->accept();
                 
                 // 每个连接在独立协程中处理
-                Async\run(function () use ($connection) {
-                    $this->handleConnection($connection);
-                })->ignore();
+                Async\run(fn() => $this->handleConnection($connection));
                 
             } catch (\Throwable $e) {
                 $this->log("Error accepting connection: " . $e->getMessage());
@@ -104,9 +105,13 @@ class TunnelServer
     /**
      * 处理客户端连接
      */
-    protected function handleConnection(Network\StreamSocketInterface $connection): void
+    protected function handleConnection(TCP\StreamInterface $connection): void
     {
-        $remoteAddr = $connection->getRemoteAddress();
+        $remoteAddr = 'unknown';
+        try {
+            $remoteAddr = $connection->getPeerAddress()->toString();
+        } catch (\Throwable) {}
+        
         $this->log("Client connected: {$remoteAddr}");
 
         try {
@@ -324,7 +329,7 @@ class TunnelServer
     public function cleanupIdleSessions(): void
     {
         while (true) {
-            Async\sleep(min($this->idleTimeout, 60)); // 最多每分钟检查一次
+            Async\sleep(Duration::seconds(min($this->idleTimeout, 60))); // 最多每分钟检查一次
             
             $now = time();
             foreach ($this->sessions as $sessionId => $session) {
@@ -347,7 +352,7 @@ class TunnelServer
     /**
      * 发送消息
      */
-    protected function sendMessage(Network\StreamSocketInterface $connection, array $data): void
+    protected function sendMessage(TCP\StreamInterface $connection, array $data): void
     {
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);
         $message = pack('N', strlen($json)) . $json;
@@ -357,7 +362,7 @@ class TunnelServer
     /**
      * 发送错误
      */
-    protected function sendError(Network\StreamSocketInterface $connection, int $errno, string $error): void
+    protected function sendError(TCP\StreamInterface $connection, int $errno, string $error): void
     {
         $this->sendMessage($connection, ['errno' => $errno, 'error' => $error]);
     }

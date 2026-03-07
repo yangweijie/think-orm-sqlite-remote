@@ -3,8 +3,7 @@ declare(strict_types=1);
 
 namespace yangweijie\orm\sqlite\remote;
 
-use Psl\Async;
-use Psl\Network;
+use Psl\DateTime\Duration;
 use Psl\TCP;
 
 /**
@@ -23,8 +22,8 @@ class SocketClient
     /** @var string 会话 ID（用于保持连接一致性） */
     protected string $sessionId;
 
-    /** @var TCP\SocketInterface|null */
-    protected ?TCP\SocketInterface $socket = null;
+    /** @var TCP\StreamInterface|null */
+    protected ?TCP\StreamInterface $socket = null;
 
     public function __construct(
         string $host,
@@ -66,10 +65,12 @@ class SocketClient
             return;
         }
 
-        $connector = new TCP\Connector(timeout: $this->timeout);
-        $address = Network\SocketAddress::create($this->host, $this->port);
-        
-        $this->socket = Async\await($connector->connect($address));
+        $this->socket = TCP\connect(
+            $this->host,
+            $this->port,
+            no_delay: true,
+            timeout: Duration::seconds($this->timeout),
+        );
     }
 
     /**
@@ -172,13 +173,10 @@ class SocketClient
         $message = pack('N', strlen($json)) . $json;
 
         // 发送
-        $this->socket->writeAll($message);
+        $this->socket->writeAll($message, Duration::seconds($this->timeout));
 
         // 读取响应长度
-        $lengthData = Async\await($this->socket->read(4));
-        if (strlen($lengthData) < 4) {
-            throw new \RuntimeException('Failed to read response length');
-        }
+        $lengthData = $this->socket->readFixedSize(4, Duration::seconds($this->timeout));
 
         $length = unpack('N', $lengthData)[1];
         if ($length <= 0 || $length > 10 * 1024 * 1024) {
@@ -186,10 +184,7 @@ class SocketClient
         }
 
         // 读取响应内容
-        $responseData = Async\await($this->socket->read($length));
-        if (strlen($responseData) < $length) {
-            throw new \RuntimeException('Incomplete response');
-        }
+        $responseData = $this->socket->readFixedSize($length, Duration::seconds($this->timeout));
 
         return json_decode($responseData, true);
     }

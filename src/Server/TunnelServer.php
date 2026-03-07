@@ -33,6 +33,9 @@ class TunnelServer
     /** @var array SQLite WAL 配置 */
     protected array $walConfig = [];
 
+    /** @var bool 服务运行状态 */
+    protected bool $running = true;
+
     public function __construct(
         string $host = '127.0.0.1',
         int $port = 9527,
@@ -75,6 +78,9 @@ class TunnelServer
     {
         $this->log("Starting SQLite Tunnel Server on {$this->host}:{$this->port}");
 
+        // 注册信号处理（优雅关闭）
+        $this->registerSignalHandlers();
+
         // 使用 psl TCP 监听
         $listener = TCP\listen(
             $this->host,
@@ -89,7 +95,7 @@ class TunnelServer
         Async\run(fn() => $this->cleanupIdleSessions());
 
         // 主循环接受连接
-        while (true) {
+        while ($this->running) {
             try {
                 $connection = $listener->accept();
                 
@@ -100,6 +106,48 @@ class TunnelServer
                 $this->log("Error accepting connection: " . $e->getMessage());
             }
         }
+
+        // 优雅关闭
+        $this->gracefulShutdown();
+    }
+
+    /**
+     * 注册信号处理器
+     */
+    protected function registerSignalHandlers(): void
+    {
+        if (function_exists('pcntl_async_signals')) {
+            pcntl_async_signals(true);
+            pcntl_signal(SIGTERM, fn() => $this->shutdown());
+            pcntl_signal(SIGINT, fn() => $this->shutdown());
+        }
+    }
+
+    /**
+     * 停止服务
+     */
+    public function shutdown(): void
+    {
+        $this->log("Received shutdown signal");
+        $this->running = false;
+    }
+
+    /**
+     * 优雅关闭所有连接
+     */
+    protected function gracefulShutdown(): void
+    {
+        $count = count($this->sessions);
+        if ($count > 0) {
+            $this->log("Shutting down, closing {$count} session(s)...");
+            foreach ($this->sessions as $sessionId => $session) {
+                try {
+                    $session->close();
+                } catch (\Throwable) {}
+            }
+            $this->sessions = [];
+        }
+        $this->log("Server stopped");
     }
 
     /**
@@ -115,7 +163,7 @@ class TunnelServer
         $this->log("Client connected: {$remoteAddr}");
 
         try {
-            while (true) {
+            while ($this->running) {
                 // 读取消息长度（4字节网络字节序）
                 $lengthData = $connection->read(4);
                 if (strlen($lengthData) < 4) {
@@ -186,7 +234,9 @@ class TunnelServer
                 default => ['errno' => 400, 'error' => "Unknown action: {$action}"],
             };
         } catch (\Throwable $e) {
-            return ['errno' => 500, 'error' => $e->getMessage()];
+            // 记录详细错误到日志（不暴露给客户端）
+            $this->log('Request error: ' . $e->getMessage());
+            return ['errno' => 500, 'error' => 'Internal server error'];
         }
     }
 
@@ -216,13 +266,24 @@ class TunnelServer
             unset($this->sessions[$sessionId]);
         }
 
+        // 检查连接数限制
+        if (count($this->sessions) >= $this->maxConnections) {
+            // 尝试清理空闲连接
+            $this->forceCleanupIdle();
+            
+            if (count($this->sessions) >= $this->maxConnections) {
+                return ['errno' => 503, 'error' => 'Maximum connections reached'];
+            }
+        }
+
         // 创建新连接
         try {
             $conn = new \SQLite3($database, SQLITE3_OPEN_READWRITE | SQLITE3_OPEN_CREATE);
             $this->sessions[$sessionId] = new ConnectionSession($conn, $database, $this->walConfig);
             return ['errno' => 0, 'message' => 'Connected'];
         } catch (\Throwable $e) {
-            return ['errno' => 500, 'error' => $e->getMessage()];
+            $this->log("Database connection error: " . $e->getMessage());
+            return ['errno' => 500, 'error' => 'Failed to open database'];
         }
     }
 
@@ -328,19 +389,42 @@ class TunnelServer
      */
     public function cleanupIdleSessions(): void
     {
+<<<<<<< HEAD
         while (true) {
+=======
+        while ($this->running) {
+>>>>>>> 6cbda54 (PRAGMA 参数白名单验证 (ConnectionSession.php))
             Async\sleep(Duration::seconds(min($this->idleTimeout, 60))); // 最多每分钟检查一次
             
-            $now = time();
-            foreach ($this->sessions as $sessionId => $session) {
-                // 检查事务超时
-                if ($session->isInTransaction() && $session->isTransactionTimeout()) {
-                    $this->log("Transaction timeout, auto rollback: {$sessionId}");
-                    $session->rollback();
-                }
-                
-                // 检查空闲超时
-                if ($now - $session->getLastActive() > $this->idleTimeout) {
+            $this->doCleanupIdle();
+        }
+    }
+
+    /**
+     * 强制清理空闲连接
+     */
+    protected function forceCleanupIdle(): void
+    {
+        $this->doCleanupIdle(true);
+    }
+
+    /**
+     * 执行清理空闲连接
+     */
+    private function doCleanupIdle(bool $force = false): void
+    {
+        $now = time();
+        foreach ($this->sessions as $sessionId => $session) {
+            // 检查事务超时
+            if ($session->isInTransaction() && $session->isTransactionTimeout()) {
+                $this->log("Transaction timeout, auto rollback: {$sessionId}");
+                $session->rollback();
+            }
+            
+            // 检查空闲超时
+            $idleTime = $now - $session->getLastActive();
+            if ($force || $idleTime > $this->idleTimeout) {
+                if (!$session->isInTransaction() || $idleTime > $this->idleTimeout * 2) {
                     $this->log("Cleaning up idle session: {$sessionId}");
                     $session->close();
                     unset($this->sessions[$sessionId]);

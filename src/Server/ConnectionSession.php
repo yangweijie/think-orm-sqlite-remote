@@ -37,6 +37,15 @@ class ConnectionSession
         $this->applyWalConfig();
     }
 
+    /** @var array<string> 允许的日志模式 */
+    private const ALLOWED_JOURNAL_MODES = ['WAL', 'DELETE', 'TRUNCATE', 'MEMORY', 'OFF'];
+    
+    /** @var array<string> 允许的同步模式 */
+    private const ALLOWED_SYNCHRONOUS_MODES = ['OFF', 'NORMAL', 'FULL'];
+    
+    /** @var array<string> 允许的 checkpoint 模式 */
+    private const ALLOWED_CHECKPOINT_MODES = ['PASSIVE', 'FULL', 'RESTART', 'TRUNCATE'];
+
     /**
      * 应用 WAL 配置
      */
@@ -44,25 +53,31 @@ class ConnectionSession
     {
         $config = $this->walConfig;
 
-        // 设置锁等待超时
-        if ($config['busy_timeout'] > 0) {
-            $this->conn->exec("PRAGMA busy_timeout = {$config['busy_timeout']}");
+        // 设置锁等待超时（数值验证：0-60000ms）
+        $busyTimeout = max(0, min(60000, (int)($config['busy_timeout'] ?? 5000)));
+        if ($busyTimeout > 0) {
+            $this->conn->exec("PRAGMA busy_timeout = {$busyTimeout}");
         }
 
-        // 设置日志模式 (WAL/DELETE/TRUNCATE)
-        if (!empty($config['journal_mode'])) {
-            $this->conn->exec("PRAGMA journal_mode = {$config['journal_mode']}");
+        // 设置日志模式（白名单验证）
+        $journalMode = strtoupper((string)($config['journal_mode'] ?? 'WAL'));
+        if (!in_array($journalMode, self::ALLOWED_JOURNAL_MODES, true)) {
+            $journalMode = 'WAL';
+        }
+        $this->conn->exec("PRAGMA journal_mode = {$journalMode}");
+
+        // 设置 WAL 自动 checkpoint（数值验证：0-100000）
+        $checkpoint = max(0, min(100000, (int)($config['wal_autocheckpoint'] ?? 1000)));
+        if ($checkpoint > 0) {
+            $this->conn->exec("PRAGMA wal_autocheckpoint = {$checkpoint}");
         }
 
-        // 设置 WAL 自动 checkpoint
-        if ($config['wal_autocheckpoint'] > 0) {
-            $this->conn->exec("PRAGMA wal_autocheckpoint = {$config['wal_autocheckpoint']}");
+        // 设置同步模式（白名单验证）
+        $synchronous = strtoupper((string)($config['synchronous'] ?? 'NORMAL'));
+        if (!in_array($synchronous, self::ALLOWED_SYNCHRONOUS_MODES, true)) {
+            $synchronous = 'NORMAL';
         }
-
-        // 设置同步模式
-        if (!empty($config['synchronous'])) {
-            $this->conn->exec("PRAGMA synchronous = {$config['synchronous']}");
-        }
+        $this->conn->exec("PRAGMA synchronous = {$synchronous}");
     }
 
     public function getDatabase(): string
@@ -242,10 +257,12 @@ class ConnectionSession
     {
         $this->touch();
 
-        // PASSIVE: 不阻塞，尽可能做 checkpoint
-        // FULL: 阻塞等待所有读者完成
-        // RESTART: 类似 FULL，完成后重启 WAL 文件
-        // TRUNCATE: 类似 RESTART，并截断 WAL 文件
+        // 白名单验证 checkpoint 模式
+        $mode = strtoupper($mode);
+        if (!in_array($mode, self::ALLOWED_CHECKPOINT_MODES, true)) {
+            $mode = 'PASSIVE';
+        }
+
         $result = $this->conn->exec("PRAGMA wal_checkpoint({$mode})");
 
         if (!$result) {

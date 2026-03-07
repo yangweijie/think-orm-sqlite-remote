@@ -25,7 +25,7 @@
         "optimize:schema-remote": "yangweijie\\orm\\sqlite\\remote\\console\\command\\optimize\\SchemaRemote",
         "sqlite-tunnel:start": "yangweijie\\orm\\sqlite\\remote\\console\\command\\SqliteTunnel"
       },
-      "providers": [
+      "services": [
         "yangweijie\\orm\\sqlite\\remote\\service\\ServiceProvider"
       ]
     }

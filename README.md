@@ -253,7 +253,7 @@ php think optimize:schema-remote --connection=sqlite_socket --table=*
 ```php
 // 在服务提供者或路由文件中
 \yangweijie\orm\sqlite\remote\service\ServiceProvider::registerRoute(
-    $app->route,
+    app()->route,
     'ntunnel-sqlite',
     [
         'auth_username' => 'admin',

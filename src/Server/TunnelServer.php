@@ -36,6 +36,9 @@ class TunnelServer
     /** @var bool 服务运行状态 */
     protected bool $running = true;
 
+    /** @var TCP\ListenerInterface|null */
+    protected ?TCP\ListenerInterface $listener = null;
+
     public function __construct(
         string $host = '127.0.0.1',
         int $port = 9527,
@@ -82,7 +85,7 @@ class TunnelServer
         $this->registerSignalHandlers();
 
         // 使用 psl TCP 监听
-        $listener = TCP\listen(
+        $this->listener = TCP\listen(
             $this->host,
             $this->port,
             no_delay: true,
@@ -97,11 +100,14 @@ class TunnelServer
         // 主循环接受连接
         while ($this->running) {
             try {
-                $connection = $listener->accept();
+                $connection = $this->listener->accept();
                 
                 // 每个连接在独立协程中处理
                 Async\run(fn() => $this->handleConnection($connection));
                 
+            } catch (\Psl\Network\Exception\AlreadyStoppedException) {
+                // Listener 被关闭（收到信号），正常退出循环
+                break;
             } catch (\Throwable $e) {
                 $this->log("Error accepting connection: " . $e->getMessage());
             }
@@ -118,8 +124,27 @@ class TunnelServer
     {
         if (function_exists('pcntl_async_signals')) {
             pcntl_async_signals(true);
-            pcntl_signal(SIGTERM, fn() => $this->shutdown());
-            pcntl_signal(SIGINT, fn() => $this->shutdown());
+            pcntl_signal(SIGTERM, function () {
+                $this->shutdown();
+                $this->closeListener();
+            });
+            pcntl_signal(SIGINT, function () {
+                $this->shutdown();
+                $this->closeListener();
+            });
+        }
+    }
+
+    /**
+     * 关闭监听器（中断 accept 阻塞）
+     */
+    protected function closeListener(): void
+    {
+        if ($this->listener !== null) {
+            try {
+                $this->listener->close();
+            } catch (\Throwable) {
+            }
         }
     }
 
